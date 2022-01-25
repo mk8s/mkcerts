@@ -1,0 +1,20 @@
+#!/bin/bash
+
+API_SAN () {
+	SAN="DNS:kubernetes,DNS:kubernetes.default,DNS:kubernetes.default.svc,DNS:kubernetes.default.svc.kube.local,IP:127.0.0.1,IP:0:0:0:0:0:0:0:1"
+	while read _ FDNS FIP4 FIP6; do
+		SAN="${SAN},DNS:${FDNS},IP:${FIP4}${FIP6:+,IP:$FIP6}"
+	done <<< "$(grep '^F\|^M' nodes)"
+	echo $SAN
+}
+
+NODE_SAN () {
+	#SAN="DNS:localhost,IP:127.0.0.1,IP:0:0:0:0:0:0:0:1,"
+	SAN=""
+	while read _ DNS IP4 IP6; do
+		SAN="${SAN},DNS:${DNS},IP:${IP4}${IP6:+,IP:$IP6}"
+	done <<< $(grep "^M\|^W $1 " nodes)
+	echo ${SAN##,}
+}
+
+$@

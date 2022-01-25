@@ -1,0 +1,41 @@
+[ default ]
+utf8                    = yes
+SAN                     = domain.tld
+
+[ req ]
+default_bits            = 4096                  # RSA key size
+encrypt_key             = yes                   # Protect private key
+default_md              = sha384                # MD to use
+utf8                    = yes                   # Input is UTF-8
+string_mask             = utf8only              # Emit UTF-8 strings
+prompt                  = no                    # Don't prompt for DN
+distinguished_name      = ca_dn                 # DN section
+req_extensions          = ca_ext                # Desired extensions
+
+[ ca_dn ]
+commonName              = k8s-ca
+
+[ ca_ext ]
+keyUsage                = critical,digitalSignature,keyEncipherment,keyCertSign
+basicConstraints        = critical,CA:true,pathlen:0
+subjectKeyIdentifier    = hash
+
+[ k8s_ca_ext ]
+keyUsage                = critical,digitalSignature,keyEncipherment,keyCertSign
+basicConstraints        = critical,CA:true,pathlen:0
+
+[ server_ext ]
+keyUsage                = critical,digitalSignature,keyEncipherment
+basicConstraints        = CA:false
+extendedKeyUsage        = serverAuth,clientAuth
+subjectKeyIdentifier    = hash
+authorityKeyIdentifier  = keyid:always
+subjectAltName          = $ENV::SAN
+
+[ client_ext ]
+keyUsage                = critical,digitalSignature,keyEncipherment
+basicConstraints        = CA:false
+extendedKeyUsage        = clientAuth
+subjectKeyIdentifier    = hash
+authorityKeyIdentifier  = keyid:always
+
