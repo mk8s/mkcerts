@@ -4,7 +4,7 @@ hash = sha384
 
 masters = $(shell grep ^M nodes | cut -d' ' -f2)
 workers = $(shell grep ^W nodes | cut -d' ' -f2)
-apiaddr = $(shell sort nodes | grep '^\(F\|M\) ' | cut -d' ' -f3)
+apiaddr = $(shell sort nodes | grep '^\(F\|M\) ' | head -n1 | cut -d' ' -f3)
 nodes = $(masters) $(workers)
 
 out = out
@@ -71,7 +71,7 @@ $(out)/controller-manager.conf: $(out)/controller-manager.crt
 		--embed-certs=true
 	kubectl --kubeconfig $@ config set-credentials system:kube-controller-manager \
 		--client-certificate $< \
-		--client-key $(out)/controller-manager.key \
+		--client-key $(<:.crt=.key) \
 		--embed-certs=true
 	kubectl --kubeconfig $@ config set-context \
 		system:kube-controller-manager@kubernetes \
@@ -90,7 +90,7 @@ $(out)/scheduler.conf: $(out)/scheduler.crt
 		--embed-certs=true
 	kubectl --kubeconfig $@ config set-credentials system:kube-scheduler \
 		--client-certificate $< \
-		--client-key $(out)/scheduler.key \
+		--client-key $(<:.crt=.key) \
 		--embed-certs=true
 	kubectl --kubeconfig $@ config set-context \
 		system:kube-scheduler@kubernetes \
@@ -109,7 +109,7 @@ $(out)/admin.conf: $(out)/admin.crt
 		--embed-certs=true
 	kubectl --kubeconfig $@ config set-credentials kubernetes-admin \
 		--client-certificate $< \
-		--client-key $(out)/admin.key \
+		--client-key $(<:.crt=.key) \
 		--embed-certs=true
 	kubectl --kubeconfig $@ config set-context \
 		kubernetes-admin@kubernetes \
@@ -136,7 +136,7 @@ $(nodes:%=$(out)/%-kubelet.conf): $(out)/%-kubelet.conf: $(out)/%-kubelet.crt
 		--embed-certs=true
 	kubectl --kubeconfig $@ config set-credentials system:node:$* \
 		--client-certificate $< \
-		--client-key $(out)/$*-kubelet.key \
+		--client-key $(<:.crt=.key) \
 		--embed-certs=true
 	kubectl --kubeconfig $@ config set-context \
 		system:node:$*@kubernetes \
