@@ -4,6 +4,7 @@ hash = sha384
 
 masters = $(shell grep ^M nodes | cut -d' ' -f2)
 workers = $(shell grep ^W nodes | cut -d' ' -f2)
+apiaddr = $(shell sort nodes | grep '^\(F\|M\) ' | cut -d' ' -f3)
 nodes = $(masters) $(workers)
 
 out = out
@@ -18,7 +19,7 @@ clean:
 	mkdir -p $(out)
 
 %.key:
-	openssl ecparam -genkey -name $(curve) -out $@
+	openssl ecparam -genkey -name $(curve) | openssl ec -out $@
 
 .PHONY : ca
 ca: $(out)/ca.key $(out)/ca.crt
@@ -38,9 +39,9 @@ $(out)/ca.crt: $(out)/ca.key
 commons: \
 	$(out)/apiserver.crt \
 	$(out)/apiserver-kubelet-client.crt \
-	$(out)/controller-manager.crt \
-	$(out)/scheduler.crt \
-	$(out)/admin.crt \
+	$(out)/controller-manager.conf \
+	$(out)/scheduler.conf \
+	$(out)/admin.conf \
 	kubelet \
 	front-proxy \
 	sa
@@ -63,29 +64,85 @@ $(out)/controller-manager.csr: $(out)/controller-manager.key
 	openssl req -new -$(hash) -key $< -out $@ \
 		-subj "/CN=system:kube-controller-manager"
 
+$(out)/controller-manager.conf: $(out)/controller-manager.crt
+	kubectl --kubeconfig $@ config set-cluster kubernetes \
+		--server https://$(apiaddr):6443 \
+		--certificate-authority $(out)/ca.crt \
+		--embed-certs=true
+	kubectl --kubeconfig $@ config set-credentials system:kube-controller-manager \
+		--client-certificate $< \
+		--client-key $(out)/controller-manager.key \
+		--embed-certs=true
+	kubectl --kubeconfig $@ config set-context \
+		system:kube-controller-manager@kubernetes \
+		--cluster kubernetes \
+		--user system:kube-controller-manager
+	kubectl --kubeconfig $@ config use-context system:kube-controller-manager@kubernetes
+
 $(out)/scheduler.csr: $(out)/scheduler.key
 	openssl req -new -$(hash) -key $< -out $@ \
 		-subj "/CN=system:kube-scheduler"
+
+$(out)/scheduler.conf: $(out)/scheduler.crt
+	kubectl --kubeconfig $@ config set-cluster kubernetes \
+		--server https://$(apiaddr):6443 \
+		--certificate-authority $(out)/ca.crt \
+		--embed-certs=true
+	kubectl --kubeconfig $@ config set-credentials system:kube-scheduler \
+		--client-certificate $< \
+		--client-key $(out)/scheduler.key \
+		--embed-certs=true
+	kubectl --kubeconfig $@ config set-context \
+		system:kube-scheduler@kubernetes \
+		--cluster kubernetes \
+		--user system:kube-scheduler
+	kubectl --kubeconfig $@ config use-context system:kube-scheduler@kubernetes
 
 $(out)/admin.csr: $(out)/admin.key
 	openssl req -new -$(hash) -key $< -out $@ \
 		-subj "/O=system:masters/CN=kubernetes-admin"
 
+$(out)/admin.conf: $(out)/admin.crt
+	kubectl --kubeconfig $@ config set-cluster kubernetes \
+		--server https://$(apiaddr):6443 \
+		--certificate-authority $(out)/ca.crt \
+		--embed-certs=true
+	kubectl --kubeconfig $@ config set-credentials kubernetes-admin \
+		--client-certificate $< \
+		--client-key $(out)/admin.key \
+		--embed-certs=true
+	kubectl --kubeconfig $@ config set-context \
+		kubernetes-admin@kubernetes \
+		--cluster kubernetes \
+		--user kubernetes-admin
+	kubectl --kubeconfig $@ config use-context kubernetes-admin@kubernetes
+
 .PHONY : kubelet
-kubelet: $(nodes:%=$(out)/%-kubelet-server.crt) $(nodes:%=$(out)/%-kubelet-client.crt)
-$(nodes:%=$(out)/%-kubelet-server.csr): $(out)/%-kubelet-server.csr: $(out)/%-kubelet-server.key
+kubelet: $(nodes:%=$(out)/%-kubelet.conf)
+$(nodes:%=$(out)/%-kubelet.csr): $(out)/%-kubelet.csr: $(out)/%-kubelet.key
 	openssl req -new -$(hash) -key $< -out $@ \
 		-subj "/O=system:nodes/CN=system:node:$*"
 
-$(nodes:%=$(out)/%-kubelet-server.crt): $(out)/%-kubelet-server.crt: $(out)/%-kubelet-server.csr
+$(nodes:%=$(out)/%-kubelet.crt): $(out)/%-kubelet.crt: $(out)/%-kubelet.csr
 	SAN="$$($(SHELL) helper NODE_SAN)" \
 	openssl x509 -req -CA $(out)/ca.crt -CAkey $(out)/ca.key -CAcreateserial -days $(days) -$(hash) \
 		-extfile openssl.cnf -extensions server_ext \
 		-in $< -out $@
 
-$(nodes:%=$(out)/%-kubelet-client.csr): $(out)/%-kubelet-client.csr: $(out)/%-kubelet-server.key
-	openssl req -new -$(hash) -key $< -out $@ \
-		-subj "/O=system:nodes/CN=system:node:$*"
+$(nodes:%=$(out)/%-kubelet.conf): $(out)/%-kubelet.conf: $(out)/%-kubelet.crt
+	kubectl --kubeconfig $@ config set-cluster kubernetes \
+		--server https://$(apiaddr):6443 \
+		--certificate-authority $(out)/ca.crt \
+		--embed-certs=true
+	kubectl --kubeconfig $@ config set-credentials system:node:$* \
+		--client-certificate $< \
+		--client-key $(out)/$*-kubelet.key \
+		--embed-certs=true
+	kubectl --kubeconfig $@ config set-context \
+		system:node:$*@kubernetes \
+		--cluster kubernetes \
+		--user kubernetes-admin
+	kubectl --kubeconfig $@ config use-context system:node:$*@kubernetes
 
 .PHONY : sa
 sa : $(out)/sa.key $(out)/sa.pub
@@ -117,7 +174,7 @@ etcd: $(out)/etcd-ca.crt \
 	$(masters:%=$(out)/%-etcd-server.crt) \
 	$(masters:%=$(out)/%-etcd-peer.crt) \
 	$(out)/etcd-healthcheck-client.crt \
-	$(out)/apiserver-etcd-client-client.crt
+	$(out)/apiserver-etcd-client.crt
 
 $(out)/etcd-ca.crt: $(out)/etcd-ca.key
 	openssl req -new -x509 -days $(days) -$(hash) \
@@ -157,11 +214,11 @@ $(out)/etcd-healthcheck-client.crt: $(out)/etcd-healthcheck-client.csr
 		-extfile openssl.cnf -extensions client_ext \
 		-in $< -out $@
 
-$(out)/apiserver-etcd-client-client.csr: $(out)/apiserver-etcd-client-client.key
+$(out)/apiserver-etcd-client.csr: $(out)/apiserver-etcd-client.key
 	openssl req -new -$(hash) -key $< -out $@ \
 		-subj "/O=system:masters/CN=kube-apiserver-etcd-client"
 
-$(out)/apiserver-etcd-client-client.crt: $(out)/apiserver-etcd-client-client.csr
+$(out)/apiserver-etcd-client.crt: $(out)/apiserver-etcd-client.csr
 	openssl x509 -req -CAcreateserial -days $(days) -$(hash) \
 		-CA $(out)/etcd-ca.crt -CAkey $(out)/etcd-ca.key \
 		-extfile openssl.cnf -extensions client_ext \
