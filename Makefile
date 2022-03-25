@@ -124,7 +124,7 @@ $(nodes:%=$(out)/%-kubelet.csr): $(out)/%-kubelet.csr: $(out)/%-kubelet.key
 		-subj "/O=system:nodes/CN=system:node:$*"
 
 $(nodes:%=$(out)/%-kubelet.crt): $(out)/%-kubelet.crt: $(out)/%-kubelet.csr
-	SAN="$$($(SHELL) helper NODE_SAN)" \
+	SAN="$$($(SHELL) helper NODE_SAN $*)" \
 	openssl x509 -req -CA $(out)/ca.crt -CAkey $(out)/ca.key -CAcreateserial -days $(days) -$(hash) \
 		-extfile openssl.cnf -extensions server_ext \
 		-in $< -out $@
@@ -141,7 +141,7 @@ $(nodes:%=$(out)/%-kubelet.conf): $(out)/%-kubelet.conf: $(out)/%-kubelet.crt
 	kubectl --kubeconfig $@ config set-context \
 		system:node:$*@kubernetes \
 		--cluster kubernetes \
-		--user kubernetes-admin
+		--user system:node:$*
 	kubectl --kubeconfig $@ config use-context system:node:$*@kubernetes
 
 .PHONY : sa
