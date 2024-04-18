@@ -13,7 +13,7 @@ NODE_SAN () {
 	SAN=""
 	while read _ DNS IP4 IP6; do
 		SAN="${SAN},DNS:${DNS},IP:${IP4}${IP6:+,IP:$IP6}"
-	done <<< $(grep "\(^M\|^W\) $1 " nodes)
+	done <<< $(grep "^M\|^W $1 " nodes)
 	echo ${SAN##,}
 }
 
