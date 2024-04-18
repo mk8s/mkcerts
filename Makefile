@@ -39,7 +39,6 @@ $(out)/ca.crt: $(out)/ca.key
 
 .PHONY : commons
 commons: \
-	$(out)/apiserver.crt \
 	$(out)/apiserver-kubelet-client.crt \
 	$(out)/controller-manager.conf \
 	$(out)/scheduler.conf \
@@ -47,16 +46,6 @@ commons: \
 	kubelet \
 	front-proxy \
 	sa
-
-$(out)/apiserver.csr: $(out)/apiserver.key
-	openssl req -new -$(hash) -key $< -out $@ \
-		-subj "/CN=kube-apiserver"
-
-$(out)/apiserver.crt: $(out)/apiserver.csr
-	SAN="$$($(SHELL) helper API_SAN)" \
-	openssl x509 -req -CA $(out)/ca.crt -CAkey $(out)/ca.key -CAcreateserial -days $(days) -$(hash) \
-		-extfile openssl.cnf -extensions server_ext \
-		-in $< -out $@
 
 $(out)/apiserver-kubelet-client.csr: $(out)/apiserver-kubelet-client.key
 	openssl req -new -$(hash) -key $< -out $@ \
@@ -176,6 +165,7 @@ etcd: $(out)/etcd-ca.crt \
 	$(masters:%=$(out)/%-etcd-server.crt) \
 	$(masters:%=$(out)/%-etcd-peer.crt) \
 	$(out)/etcd-healthcheck-client.crt \
+	$(masters:%=$(out)/%-apiserver.crt) \
 	$(out)/apiserver-etcd-client.crt
 
 $(out)/etcd-ca.crt: $(out)/etcd-ca.key
@@ -216,6 +206,16 @@ $(out)/etcd-healthcheck-client.crt: $(out)/etcd-healthcheck-client.csr
 		-extfile openssl.cnf -extensions client_ext \
 		-in $< -out $@
 
+$(masters:%=$(out)/%-apiserver.csr): $(out)/%-apiserver.csr: $(out)/%-apiserver.key
+	openssl req -new -$(hash) -key $< -out $@ \
+		-subj "/CN=kube-apiserver"
+
+$(masters:%=$(out)/%-apiserver.crt): $(out)/%-apiserver.crt: $(out)/%-apiserver.csr
+	SAN="$$($(SHELL) helper API_SAN $*)" \
+	openssl x509 -req -CA $(out)/ca.crt -CAkey $(out)/ca.key -CAcreateserial -days $(days) -$(hash) \
+		-extfile openssl.cnf -extensions server_ext \
+		-in $< -out $@
+
 $(out)/apiserver-etcd-client.csr: $(out)/apiserver-etcd-client.key
 	openssl req -new -$(hash) -key $< -out $@ \
 		-subj "/O=system:masters/CN=kube-apiserver-etcd-client"
@@ -238,8 +238,8 @@ ifeq ($(myhost_cp), $(myhost))
 	install -D -m 600 $(out)/$(myhost)-etcd-peer.key /etc/kubernetes/pki/etcd/peer.key
 	install -D -m 644 $(out)/$(myhost)-etcd-server.crt /etc/kubernetes/pki/etcd/server.crt
 	install -D -m 600 $(out)/$(myhost)-etcd-server.key /etc/kubernetes/pki/etcd/server.key
-	install -D -m 644 $(out)/apiserver.crt /etc/kubernetes/pki/apiserver.crt
-	install -D -m 640 $(out)/apiserver.key /etc/kubernetes/pki/apiserver.key
+	install -D -m 644 $(out)/$(myhost)-apiserver.crt /etc/kubernetes/pki/apiserver.crt
+	install -D -m 640 $(out)/$(myhost)-apiserver.key /etc/kubernetes/pki/apiserver.key
 	install -D -m 644 $(out)/apiserver-etcd-client.crt /etc/kubernetes/pki/apiserver-etcd-client.crt
 	install -D -m 600 $(out)/apiserver-etcd-client.key /etc/kubernetes/pki/apiserver-etcd-client.key
 	install -D -m 644 $(out)/apiserver-kubelet-client.crt /etc/kubernetes/pki/apiserver-kubelet-client.crt
